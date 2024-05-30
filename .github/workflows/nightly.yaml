@@ -1,0 +1,49 @@
+name: Run Benchmarks
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # midnight, every day
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        profile: [network2]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build profiles.json
+        run: |
+          echo "{
+            \"profiles\": {
+              \"${{ matrix.profile }}\": {
+                \"node_url\": \"${{ secrets[matrix.profile | upper | append: '_RPC_URL'] }}\",
+                \"key_file\": \"${{ secrets[matrix.profile | upper | append: '_PRIVATE_KEY'] }}\"
+              }
+            }
+          }" > ./profiles.json
+
+      - name: Build and run benchmarks
+        run: ./run_benchmarks.sh ${{ matrix.profile }}
+
+      - name: Upload benchmark log
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: benchmark-log-${{ matrix.profile }}
+          path: ./logs/benchmark-${{ matrix.profile }}.log
