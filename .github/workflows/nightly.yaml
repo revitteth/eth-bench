@@ -1,0 +1,51 @@
+name: Run Benchmarks
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # midnight, every day
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        profile: [network2]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Set environment variables
+        run: |
+          PROFILE_UPPER=$(echo ${{ matrix.profile }} | tr '[:lower:]' '[:upper:]')
+          RPC_URL_KEY=${{ format('{0}_RPC_URL', PROFILE_UPPER) }}
+          PRIVATE_KEY_KEY=${{ format('{0}_PRIVATE_KEY', PROFILE_UPPER) }}
+          echo "RPC_URL=${{ secrets[RPC_URL_KEY] }}" >> $GITHUB_ENV
+          echo "PRIVATE_KEY=${{ secrets[PRIVATE_KEY_KEY] }}" >> $GITHUB_ENV
+
+      - name: Create profiles.json
+        run: |
+          chmod +x ./create_profiles_json.sh
+          ./create_profiles_json.sh ${{ matrix.profile }} ${{ env.RPC_URL }} ${{ env.PRIVATE_KEY }}
+
+      - name: Build and run benchmarks
+        run: ./run_benchmarks.sh ${{ matrix.profile }}
+
+      - name: Upload benchmark log
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-log-${{ matrix.profile }}
+          path: ./logs/benchmark-${{ matrix.profile }}.log
